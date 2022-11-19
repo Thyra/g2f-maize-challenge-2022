@@ -1,0 +1,2 @@
+geno_processed.miss.1.mac.1.biallelic.txt.xz filter=lfs diff=lfs merge=lfs -text
+pheno_processed.txt filter=lfs diff=lfs merge=lfs -text
