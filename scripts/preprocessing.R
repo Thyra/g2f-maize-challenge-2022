@@ -47,7 +47,7 @@ missing_data_overview <- trait_data %>% group_by(Env) %>%
             missing = sum(is.na(Yield_Mg_ha)),
             missing_prop = missing/vals) %>%
   arrange(desc(missing_prop)) # shows proportion of missing data points for grain yield
--------------------------------------------------
+
 # Model selection and fit
 # random factors BLUEs
 BLUE_rf1 <- sprintf("~ %s", "Replicate")
@@ -160,16 +160,10 @@ trait_data_tibble <- trait_data %>%
   convert(fct(Hybrid,  Replicate, Block, Range, Pass)) %>%
   arrange(Replicate, Block, Range, Pass)
 
-an.error.occured <- FALSE
-tryCatch( { result <- log("not a number"); print(res) }
-          , error = function(e) {an.error.occured <<- TRUE})
-print(an.error.occured)
-
-
 # get results
 output <- list()
 caught <- NULL
-for(i in model_overview$Env[1:10]){
+for(i in model_overview$Env){
   # reset variables
   trait_data_subset <- NULL
   overview <- NULL
@@ -263,6 +257,8 @@ BLUEs <- as.data.frame(do.call(rbind, lapply(output, function(x) {
   })))
 row.names(BLUEs) <- NULL
 
+write.table(BLUEs, sprintf("%s/pheno_processed.txt", processed_data), row.names = F)
+
 # Genodata ----------------------------------------------------------------
 system(sprintf('zcat %s/5_Genotype_Data_All_Years.vcf.gz | grep -v -P "#" | cut -f1-2 > %s/marker_names', processed_data, processed_data))
 system(sprintf("zcat %s/5_Genotype_Data_All_Years.vcf.gz | head -n 30 | grep '#' | tail -n 1 > %s/sample_names", processed_data, processed_data))
@@ -348,7 +344,6 @@ meta_data <- read.csv(sprintf("%s/2_Training_Meta_Data_2014_2021_utf_encoded.csv
 overlap_check_meta_pheno <- trait_data %>% distinct(Env) %>% 
   mutate(present = ifelse(Env %in% meta_data$Env, TRUE, FALSE))
 overlap_check_meta_pheno %>% count(present) # all present
-
 
 # Get overview of availability --------------------------------------------
 
