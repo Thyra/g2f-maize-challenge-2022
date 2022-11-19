@@ -279,6 +279,22 @@ overlap_check_geno_pheno %>% count(present)
 # FALSE  260 # these hybrids has no genotypic data available. Most likely these genotypes need to be filtered from the genodata. Else we need to do a manual search
 # TRUE 4423
 
+miss_stats <- read.table(sprintf("%s/5_Genotype_Data_All_Years.lmiss", processed_data), header = T) %>%
+  mutate(miss_prop = N_MISS/N_DATA) %>% filter(miss_prop == 0)
+
+#Var1   Freq
+# 0   49642  # the one to start working
+#(0,0.1] 359131 # here onwards some sort of imputation will be needed. I will initially upload these markers. 
+#(0.1,0.2]  18679 
+#(0.2,0.3]   5166
+#(0.3,0.4]   2385
+#(0.4,0.5]   1142
+#(0.5,0.6]    612
+#(0.6,0.7]    261
+#(0.7,0.8]    107
+#(0.8,0.9]     75
+#(0.9,1]     14
+
 # Env data ----------------------------------------------------------------
 
 env_data <- read.csv(sprintf("%s/4_Training_Weather_Data_2014_2021.csv", source_data), header = T) # 16 variables
