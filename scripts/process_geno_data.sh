@@ -66,6 +66,8 @@ then
     --recode --recode-INFO-all \
     --stdout 2> "$pro_dir_path/$file_name.miss.$miss_thr.mac.$mac_thr.vcf.gz.err" \
     | bgzip -c > "$pro_dir_path/$file_name.miss.$miss_thr.mac.$mac_thr.vcf.gz"
+else
+  echo "filtered vcf with these thresholds exists"
 fi
 
 # recode to numeric
@@ -73,7 +75,8 @@ if [[ ! -f  "$pro_dir_path/$file_name.miss.$miss_thr.mac.$mac_thr.012"  ]]
 then
   vcftools --gzvcf "$pro_dir_path/$file_name.miss.$miss_thr.mac.$mac_thr.vcf.gz" \
     --012 \
-    --recode --recode-INFO-all \
-    --stdout 2> "$pro_dir_path/$file_name.miss.$miss_thr.mac.$mac_thr.012.err" \
-    | bgzip -c > "$pro_dir_path/$file_name.miss.$miss_thr.mac.$mac_thr.012"
+    --out "$pro_dir_path/$file_name.miss.$miss_thr.mac.$mac_thr" \
+    2> "$pro_dir_path/$file_name.miss.$miss_thr.mac.$mac_thr.012.err"
+else
+  echo "recoded file exists"
 fi
