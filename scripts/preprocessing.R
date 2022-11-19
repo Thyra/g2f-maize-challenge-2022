@@ -281,10 +281,10 @@ overlap_check_geno_pheno %>% count(present)
 
 miss_stats <- read.table(sprintf("%s/5_Genotype_Data_All_Years.lmiss", processed_data), header = T) %>%
   mutate(miss_prop = N_MISS/N_DATA) %>% filter(miss_prop == 0)
-
-#Var1   Freq
-# 0   49642  # the one to start working
-#(0,0.1] 359131 # here onwards some sort of imputation will be needed. I will initially upload these markers. 
+#as.data.frame(table(cut(miss_stats$miss_prop, breaks = seq(0, 1, 0.1))))
+#     Var1   Freq
+#       0   49642  # the one to start working
+#  (0,0.1] 359131 # here onwards some sort of imputation will be needed. I will initially upload these markers. 
 #(0.1,0.2]  18679 
 #(0.2,0.3]   5166
 #(0.3,0.4]   2385
@@ -293,7 +293,29 @@ miss_stats <- read.table(sprintf("%s/5_Genotype_Data_All_Years.lmiss", processed
 #(0.6,0.7]    261
 #(0.7,0.8]    107
 #(0.8,0.9]     75
-#(0.9,1]     14
+#  (0.9,1]     14
+
+miss_stats_geno <- read.table(sprintf("%s/5_Genotype_Data_All_Years.imiss", processed_data), header = T) %>%
+  mutate(miss_prop = N_MISS/N_DATA)
+#as.data.frame(table(cut(miss_stats_geno$miss_prop, breaks = seq(0, 1, 0.1))))
+
+#         Var1 Freq
+#    (0,0.01]  313
+# (0.01,0.02] 3824
+# (0.02,0.03]  625
+# (0.03,0.04]    0
+# (0.04,0.05]    0
+# (0.05,0.06]    0
+# (0.06,0.07]    0
+# (0.07,0.08]    0
+# (0.08,0.09]    4
+#  (0.09,0.1]   18
+#   (0.1,0.2]  105
+#   (0.2,0.3]   37
+#   (0.3,0.4]    2
+#   (0.4,0.6]    0
+#   (0.6,0.8]    0
+#     (0.8,1]    0
 
 # Env data ----------------------------------------------------------------
 
