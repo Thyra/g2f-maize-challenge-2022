@@ -54,7 +54,7 @@ def read_pkl(path):
 def write_pkl(data, path):
     with open(path, "wb") as fp:   # pickling
         pickle.dump(data, fp)
-    return data
+    return print("Done")
 
 def read_json(path):
     with open(path, encoding = "utf8") as json_file:
@@ -63,7 +63,7 @@ def read_json(path):
 def write_json(data, path):
     with open(path, "w") as fp:   
         json.dump(data, fp)
-    return data
+    return print("Done")
 
 def print_function(func_name):
     lines = inspect.getsource(func_name)
