@@ -4,10 +4,10 @@ https://eval.ai/web/challenges/challenge-page/1878/overview
 # Processing steps
 
 ## Genodata
-It was first processed in bash with scripts/process_geno_data.sh and then channeled to R for final processing with scripts/preprocessing.R
+It was first processed in bash with scripts/process_geno_data.sh and then minimally formatted to a usable csv with numeric genotype calls.
 
 ## Others
-Processed with scripts/preprocessing.R
+checked with scripts/preprocessing.ipynb. 
 
 # Usage 
-The processed data is in processed data folder and the raw data, i.e. not yet processed, is in source_data/Training_data
+Since the object sizes are becoming large. I would propose to run the script on your local system to save the curated file locally. 
