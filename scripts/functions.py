@@ -16,6 +16,7 @@ from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import MinMaxScaler
 from scipy.stats import pearsonr
+import random
 
 # for DL
 from tensorflow.keras.models import Sequential
