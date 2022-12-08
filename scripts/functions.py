@@ -7,6 +7,7 @@ import time
 import pandas as pd
 import numpy as np
 import patsy as pt
+from re import search
 
 # for plots
 import matplotlib.pyplot as plt
@@ -37,8 +38,9 @@ import keras_tuner as kt
 import pickle
 import json
 
-# for logging
+# for logging and debugging
 import logging
+import warnings
 
 # Common functions ---------------------------------------------------------------------------------------------------------------------
 def scale_data(to_transform, pd_cols, pd_index):
@@ -69,3 +71,12 @@ def write_json(data, path):
 def print_function(func_name):
     lines = inspect.getsource(func_name)
     return print(lines)
+
+def purge_excess_missing(data, thr = 0.2, plot = False, id_cols = []):
+    data_missing = data[data.columns.difference(id_cols)].isna().sum()/data.shape[0]
+    if plot:
+        data_missing.reset_index(name="n").plot.barh(x='index', y='n',figsize=(20, 10)) # the columns with > 20 % values will be deleted. there are non numeric values in this data.
+    to_include = data_missing[data_missing <= thr].index.values.tolist()
+    to_include = id_cols + to_include
+    data_subset = data.loc[:, to_include]
+    return data_subset
