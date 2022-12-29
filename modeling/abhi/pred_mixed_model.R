@@ -3,8 +3,15 @@ packs <- c("tidyverse", "qs", "hablar", "data.table", "AGHmatrix"
            , "jsonlite", "RSpectra", "foreach", "doParallel"
            , "Metrics", "BGLR")
 success <- suppressWarnings(sapply(packs, require, character.only = TRUE))
-install.packages(names(success)[!success])
-sapply(names(success)[!success], require, character.only = TRUE)
+
+if (!any(success)) {
+  missing_packs <- names(success)[!success]
+  install.packages(missing_packs)
+  sapply(missing_packs, require, character.only = TRUE)
+  cat(sprintf("%s\npackages were absent. These were installed and loaded", paste0(missing_packs, collapse = "\t")))
+} else {
+  print("All packages were present and are loaded!")
+}
 
 setDTthreads(10)
 options("scipen"=10, "digits"=2)
@@ -203,10 +210,11 @@ cv <- read_json(sprintf("%s/train_test_split_v2.json", paths[["processed_data"]]
 
 # perform predictions
 
-## In parallel
 instance <- format(Sys.time(), format = "%H_%M_%d_%m_%y")
 save_loc <- sprintf("%s/mixed_model/at_%s", paths[["dump_at"]], instance)
 if(!dir.exists(save_loc)){dir.create(save_loc, recursive = T)}
+
+## To test: even this crashes my r session!
 
 system.time(check <- yield_rmse(run = 1,
                                 cv_data = cv,
@@ -214,6 +222,8 @@ system.time(check <- yield_rmse(run = 1,
                                 G_mat = G_mat,
                                 E_mat = E_mat,
                                 save_loc = save_loc))
+
+## In parallel
 
 cl <- makeCluster(length(cv))
 registerDoParallel(cl)
