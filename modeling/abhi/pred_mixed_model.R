@@ -1,0 +1,251 @@
+# Libraries and packages --------------------------------------------------
+packs <- c("tidyverse", "qs", "hablar", "data.table", "AGHmatrix"
+           , "jsonlite", "RSpectra", "foreach", "doParallel"
+           , "Metrics", "BGLR")
+success <- suppressWarnings(sapply(packs, require, character.only = TRUE))
+install.packages(names(success)[!success])
+sapply(names(success)[!success], require, character.only = TRUE)
+
+setDTthreads(10)
+options("scipen"=10, "digits"=2)
+
+yield_rmse <- function(run, cv_data, pheno_data, G_mat, E_mat, save_loc, nIter=1000, burnIn=100){
+  run_name <- names(cv_data)[run]
+  log_at <-  sprintf("%s/logs", save_loc)
+  data_at <-  sprintf("%s/data", save_loc)
+  result_at <- sprintf("%s/results", save_loc)
+  
+  if(!dir.exists(log_at)){dir.create(log_at, recursive = T)}
+  if(!dir.exists(data_at)){dir.create(data_at, recursive = T)}
+  if(!dir.exists(result_at)){dir.create(result_at, recursive = T)}
+  
+  # get pheno_data
+  train <- pheno_data[unlist(cv[[run]][["train"]]), ] %>% select(Env, Hybrid, Yield_Mg_ha) %>% 
+    distinct(Env, Hybrid, .keep_all = T) %>% mutate(type = "train")
+  val <- pheno_data[unlist(cv[[run]][["val"]]), ] %>% select(Env, Hybrid, Yield_Mg_ha) %>% 
+    distinct(Env, Hybrid, .keep_all = T) %>% mutate(type = "train")
+  test <- pheno_data[unlist(cv[[run]][["test"]]), ] %>% select(Env, Hybrid, Yield_Mg_ha) %>% 
+    distinct(Env, Hybrid, .keep_all = T) %>% mutate(type = "test")
+  
+  phenoGE <- train %>% bind_rows(val) %>% bind_rows(test) %>%
+    mutate(obs = ifelse(type == "train", Yield_Mg_ha, NA))
+  
+  env <- unique(phenoGE$Env)
+  geno <- unique(phenoGE$Hybrid)
+  
+  ng <- length(geno)
+  ne <- length(env)
+  
+  cat(sprintf("phenoGE defined for run %s", run), 
+      file = sprintf("%s/run_%s.log", log_at, run),
+      sep = "\n")
+  
+  # Generate design matrices
+  
+  Jp <- matrix(1, ng, ng, dimnames = list(geno, geno))
+  Jq <- matrix(1, ne, ne, dimnames = list(env, env))
+  
+  Zg <- model.matrix(~ -1 + Hybrid, phenoGE)
+  colnames(Zg) <- gsub('Hybrid', '', colnames(Zg), perl = T)
+  Ze <- model.matrix(~ -1 + Env, phenoGE)
+  colnames(Ze) <- gsub('Env', '', colnames(Ze), perl = T)
+  
+  mat_names <- paste0(phenoGE$Env, ":", phenoGE$Hybrid)
+  
+  ## subset and order relationship matrices
+  G_mat_ordered <- G_mat[colnames(Zg), colnames(Zg)]
+  E_mat_ordered <- E_mat[colnames(Ze), colnames(Ze)]
+  
+  ## calculate response matrices
+  Kg <- Zg %*% tcrossprod(G_mat_ordered, Zg)
+  Ke <- Ze %*% tcrossprod(E_mat_ordered, Ze)
+  colnames(Kg) <- rownames(Kg) <- mat_names
+  colnames(Kg) <- rownames(Kg) <- mat_names
+  Kge <- Kg*Ke
+  
+  ## set ETA and run model
+  ETA <- list(G = list(K = Kg, model='RKHS'),
+              E = list(K = Ke, model='RKHS'),
+              GE = list(K = Kge, model='RKHS'))
+  
+  cat(sprintf("ETA defined for run %s", run), 
+      file = sprintf("%s/run_%s.log", log_at, run),
+      sep = "\n",
+      append = T)
+
+  #rm(list=setdiff(ls(), c("pheno_data", "G_mat", "E_mat", "paths", "phenoGE", "ETA", 
+  #                        "ne", "y", "run", "run_name", "data_at", "log_at", "result_at")))
+  
+  ## set BLAS threads
+  RhpcBLASctl::blas_set_num_threads(1)
+  
+  t0 <- Sys.time()
+  model_fit <- BGLR(y=phenoGE$obs,
+                    ETA=ETA,
+                    nIter=nIter,
+                    burnIn=burnIn,
+                    verbose = FALSE,
+                    saveAt=sprintf("%s/run_%s", data_at, run))
+  t1 <- Sys.time()
+  cat(sprintf("model fitting took %s minutes", difftime(t1, t0, units='mins')), 
+      file = sprintf("%s/run_%s.log", log_at, run),
+      append = T,
+      sep = "\n")
+  
+  phenoGE$pred <- model_fit$yHat
+  
+  qsave(phenoGE, sprintf("%s/run_%s.qs", result_at, run))
+  
+  mean_rmse <- phenoGE %>% filter(type == "test") %>% group_by(Env) %>% 
+    summarize(RMSE = rmse(Yield_Mg_ha, pred), .groups = "drop") %>%
+    pull(RMSE) %>% mean()
+  mean_r2 <- phenoGE %>% filter(type == "test") %>% group_by(Env) %>% 
+    summarize(r2 = cor(Yield_Mg_ha, pred), .groups = "drop") %>%
+    pull(r2) %>% mean()
+  
+  cat(sprintf("run_name = %s ; Mean RMSE (over environments) = %s", run_name, mean_rmse),
+      file = sprintf("%s/run_%s.log", log_at, run),
+      append = T,
+      sep = "\n")
+  
+  # produce output
+  out <- cbind("run" = run_name,
+               "G" = model_fit$ETA$G$varU,
+               "E"= model_fit$ETA$E$varU,
+               "GxE"= model_fit$ETA$GE$varU,
+               "err"= model_fit$varE,
+               "Mean_RMSE" = mean_rmse,
+               "Mean_cor" = mean_r2)
+  
+  return(out)
+}
+
+# paths -------------------------------------------------------------------
+
+paths <- list(
+  "tmp_at" = '/proj/g2f-maize-challenge-2022/tmp_data',
+  "dump_at" = '/proj/g2f-maize-challenge-2022/dump',
+  "source_data" = '/proj/g2f-maize-challenge-2022/source_data/Training_Data',
+  "processed_data" = '/proj/g2f-maize-challenge-2022/processed_data'
+)
+
+# Load data ---------------------------------------------------------------
+
+## Gmat
+
+if (!file.exists(sprintf("%s/G_mat.qs", paths[["processed_data"]]))){
+  geno_data <- fread(sprintf("%s/geno_processed.miss.1.mac.1.biallelic.txt", paths[["processed_data"]]), 
+                     header = T, sep = ",")
+  
+  geno_data_df <- setDF(geno_data)
+  rm(geno_data)
+  
+  geno_data_mat <- as.matrix(geno_data_df[, 2:ncol(geno_data_df)])
+  rownames(geno_data_mat) <- geno_data_df$Hybrid
+  
+  G_mat <- Gmatrix(geno_data_mat, method = "VanRaden")
+} else {
+  G_mat <- qread(sprintf("%s/G_mat.qs", paths[["processed_data"]]))
+}
+
+#D.matrix <-function(M){
+#  # from SnpReady
+#  N <- nrow(M)
+#  m <- ncol(M)
+#  p <- colMeans(M)/2
+#  D <- ((M==2)*1) * - rep(2*(1-p)^2, each=N) + ((M==1)*1) * rep(2*p*(1-p), each=N) + ((M==0)*1) * (-rep(2*p^2, each=N))
+#  return(D) 
+#}
+#
+#geno_data_dom <- D.matrix(geno_data_mat)
+#
+#D_mat <- Gmatrix(geno_data_dom, method = "VanRaden")
+#  
+
+#qsave(G_mat, sprintf("%s/G_mat.qs", processed_data))
+
+## phenodata
+data <- setDF(fread(sprintf("%s/combined_mat.csv", paths[["processed_data"]])))
+all_cols <- colnames(data)
+
+sl <- all_cols[grep("sl_", all_cols)]
+wt <- all_cols[grep("wt_", all_cols)][-1]
+ec <- all_cols[grep("ec_", all_cols)]
+
+pheno_data <- data[, all_cols[!(all_cols %in% c(sl, ec, wt))]]
+
+## env_data
+ec_data <- data[, ec] %>% distinct()
+sl_data <- data[, sl] %>% distinct()
+
+#wt_data <- data[, wt] %>% pivot_longer(!wt_dta_Env, names_to = "names", values_to = "value") %>% 
+#  mutate(variable = gsub("(.*)\\_\\d{4}", "\\1", names, perl = T), 
+#         day = gsub(".*\\_(\\d{4})", "\\1", names, perl = T)) %>%
+#  select(-names) %>% pivot_wider(id_cols = c("wt_dta_Env", "day"), names_from = "variable",
+#                                 values_from = "value")
+
+ec_scaled <- scale(ec_data[, -1], scale = T, center = T)
+rownames(ec_scaled) <- ec_data$ec_dta_Env
+
+miss_info <- apply(ec_scaled, 2, function(x) sum(is.na(x)))
+non_miss_cols <- miss_info[which(miss_info == 0)]
+
+ec_no_miss <- ec_scaled[, names(non_miss_cols)]
+
+ec_mat <- ec_no_miss %*% t(ec_no_miss)
+
+E_mat <- ec_mat/(sum(diag(ec_mat))/nrow(ec_mat))
+
+## cv data
+cv <- read_json(sprintf("%s/train_test_split_v2.json", paths[["processed_data"]]))
+
+#source("https://raw.githubusercontent.com/allogamous/EnvRtype/master/R/getGEenriched.R")
+
+# perform predictions
+
+## In parallel
+instance <- format(Sys.time(), format = "%H_%M_%d_%m_%y")
+save_loc <- sprintf("%s/mixed_model/at_%s", paths[["dump_at"]], instance)
+if(!dir.exists(save_loc)){dir.create(save_loc, recursive = T)}
+
+system.time(check <- yield_rmse(run = 1,
+                                cv_data = cv,
+                                pheno_data = pheno_data,
+                                G_mat = G_mat,
+                                E_mat = E_mat,
+                                save_loc = save_loc))
+
+cl <- makeCluster(length(cv))
+registerDoParallel(cl)
+system.time(out_raw <- foreach(i=1:length(cv),
+                               .packages = c("dplyr", "BGLR", "qs", "Metrics"))
+            %dopar% yield_rmse(run = i,
+                               cv_data = cv,
+                               pheno_data = pheno_data,
+                               G_mat = G_mat,
+                               E_mat = E_mat,
+                               save_loc = save_loc))
+stopCluster(cl)
+
+out_raw_df <- as.data.frame(do.call(rbind, out_raw))
+
+# Exp ---------------------------------------------------------------------
+# reads a mat, decomposes it and saves output to the same location with a different name
+eigen_decomp <- function(mat_path){
+  t0 <- Sys.time()
+  mat <- qs::qread(mat_path)
+  t1 <- Sys.time()
+  print(sprintf("reading took %s minutes", difftime(t1, t0, units='mins')))
+  eigen <- eigs_sym(mat, k = 1000, which = "LM")
+  t2 <- Sys.time()
+  print(sprintf("decomp took %s minutes", difftime(t2, t1, units='mins')))
+  qs::qsave(eigen, save_at)
+  save_at <- sprintf("%s_eig.qs", gsub(".qs", "", mat_path))
+  print(sprintf("saved at %s", save_at))
+  return(eigen)
+}
+
+
+
+
+
