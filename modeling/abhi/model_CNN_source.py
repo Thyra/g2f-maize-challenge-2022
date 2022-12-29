@@ -80,3 +80,5 @@ def purge_excess_missing(data, thr = 0.2, plot = False, id_cols = []):
     to_include = id_cols + to_include
     data_subset = data.loc[:, to_include]
     return data_subset
+
+# Model functions ---------------------------------------------------------------------------------------------------------------------
