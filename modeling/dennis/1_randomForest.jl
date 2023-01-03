@@ -6,11 +6,12 @@ using Statistics
 println("Reading CSV...")
 d = DataFrame(CSV.File("../../processed_data/combined_mat.csv"))
 println("  done!")
-x = d[:, 12:ncol(d)]
-x = x[:, sum.(ismissing, eachcol(x)) .== 0]
+# Only take wt and sl columns for now (no pheno and no EC)
+x = d[!, 796:ncol(d)]
 
-# Remove string variables (cannot work with them so far)
-x = x[!, Not(names(x, AbstractString))]
+# The following two are just for safety, they should actually not throw out any columns
+x = x[:, sum.(ismissing, eachcol(x)) .== 0] # Remove cols with missing values
+x = x[:, Not(names(x, AbstractString))] # Remove string variables (cannot work with them so far)
 
 # Transform Strings to Categorical Variables
 # transform!(x, names(x, AbstractString) .=> categorical, renamecols=false)
@@ -40,6 +41,6 @@ for(key, val) in split
     rmse = sqrt(mean((y_test - preds) .^ 2))
     println(rmse)
     push!(rmses, [key, rsme])
+    CSV.write("./1_rmses.csv", rmses)
 end
-CSV.write("./1_rmses.csv", rmses)
-rmses
+println("Done.")
