@@ -45,7 +45,7 @@ y_test  = y[test_rows]
 function evaluate_feature_subset(features_active) 
     x_train_active = x_train[:, features_active]
     
-    model = build_forest(y_train, Matrix(x_train_active), ceil(ncol(x_train_active)/3), 500, 0.632)
+    model = build_forest(y_train, Matrix(x_train_active), ceil(ncol(x_train_active)/3), 200, 0.632)
     preds = apply_forest(model, Matrix(x_test))
     rmse = sqrt(mean((y_test - preds) .^ 2))
     return(rmse)
@@ -59,9 +59,11 @@ end
 
 res = Evolutionary.optimize(x->evaluate_feature_subset(x),
                             fa,
-                            GA(selection=susinv, populationSize=200,
+                            GA(selection=susinv, populationSize=120,
                             mutation=flip, crossover=BSX(1000), ɛ=10),
-                            Evolutionary.Options(time_limit=50400, show_trace=true, parallelization = :thread))
+                            Evolutionary.Options(time_limit=86400.0, show_trace=true, parallelization = :thread))
+
+# @TODO to save features after every iteration, do something with the trace https://github.com/wildart/Evolutionary.jl/issues/104
 
 open("selected_features.txt", "w") do f
     for n in names(x)[res.minimizer]
