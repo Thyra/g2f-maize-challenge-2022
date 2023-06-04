@@ -6,6 +6,7 @@ options("scipen"=10, "digits"=2)
 
 # paths -------------------------------------------------------------------
 
+
 tmp_at <- '/proj/g2f-maize-challenge-2022/tmp_data'
 dump_at <- '/proj/g2f-maize-challenge-2022/dump'
 source_data <- '/proj/g2f-maize-challenge-2022/source_data/Training_Data'
