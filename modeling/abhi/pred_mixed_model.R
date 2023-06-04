@@ -43,9 +43,9 @@ yield_rmse <- function(run, cv_data, eig_g_at,
       sep = "\n")
   
   ## set ETA and run model
-  ETA <- list(G = list(V=Kg_eigen$vectors,d=Kg_eigen$values, model='RKHS'),
-              E = list(V=Ke_eigen$vectors,d=Ke_eigen$values, model='RKHS'),
-              GE = list(V=Kge_eigen$vectors,d=Kge_eigen$values, model='RKHS'))
+  ETA <- list(G = list(X=Kg_eigen, model='BRR'),
+              E = list(X=Ke_eigen, model='BRR'),
+              GE = list(X=Kge_eigen, model='BRR'))
   
   cat(sprintf("ETA defined for run %s", run), 
       file = sprintf("%s/run_%s.log", log_at, run),
@@ -53,7 +53,7 @@ yield_rmse <- function(run, cv_data, eig_g_at,
       append = T)
   
   ## set BLAS threads
-  RhpcBLASctl::blas_set_num_threads(1)
+  #RhpcBLASctl::blas_set_num_threads(1)
   
   t0 <- Sys.time()
   model_fit <- BGLR(y=phenoGE$obs,
@@ -87,9 +87,9 @@ yield_rmse <- function(run, cv_data, eig_g_at,
   
   # produce output
   out <- cbind("run" = run_name,
-               "G" = model_fit$ETA$G$varU,
-               "E"= model_fit$ETA$E$varU,
-               "GxE"= model_fit$ETA$GE$varU,
+               "G" = model_fit$ETA$G$varB,
+               "E"= model_fit$ETA$E$varB,
+               "GxE"= model_fit$ETA$GE$varB,
                "err"= model_fit$varE,
                "Mean_RMSE" = mean_rmse,
                "Mean_cor" = mean_r2)
@@ -97,21 +97,87 @@ yield_rmse <- function(run, cv_data, eig_g_at,
   return(out)
 }
 
-eigen_decomp <- function(mat, save_at){
+eigen_decomp <- function(inc_mat = NULL, mat, save_at){
   t1 <- Sys.time()
-  eigen <- eigen(mat)
+  mat_eigen <- eigen(mat)
+  mat_eigen$vectors <- mat_eigen$vectors[, mat_eigen$values>1e-8]
+  mat_eigen$values <- mat_eigen$values[mat_eigen$values>1e-8]
+  mat_PC <- sweep(mat_eigen$vectors,MARGIN=2,STATS=sqrt(mat_eigen$values),FUN='*')
   t2 <- Sys.time()
   print(sprintf("decomp took %s minutes", difftime(t2, t1, units='mins')))
-  qs::qsave(eigen, save_at)
+  if(!is.null(inc_mat)){
+    final_mat <- inc_mat %*% mat_PC
+  } else {
+    final_mat <- mat_PC
+  }
+  qs::qsave(final_mat, save_at)
   print(sprintf("saved at %s", save_at))
-  return(eigen)
+  return(final_mat)
 }
+
+generate_eigen_decomps <- function(G_mat, E_mat, pheno_data, eig_g_at, eig_e_at, eig_ge_at){
+  mat_names <- paste0(pheno_data$Env, ":", pheno_data$Hybrid)
+  if (!file.exists(eig_g_at)){
+    Zg <- model.matrix(~ -1 + Hybrid, pheno_data)
+    colnames(Zg) <- gsub('Hybrid', '', colnames(Zg), perl = T)
+    G_mat_ordered <- G_mat[colnames(Zg), colnames(Zg)]
+    
+    # decompose and save
+    decomp_g <- eigen_decomp(inc_mat = Zg,
+                             mat = G_mat_ordered,
+                             save_at = eig_g_at)
+    rm(Zg, G_mat_ordered, decomp_g)
+  }
+  
+  if(!file.exists(eig_e_at)){
+    Ze <- model.matrix(~ -1 + Env, pheno_data)
+    colnames(Ze) <- gsub('Env', '', colnames(Ze), perl = T)
+    E_mat_ordered <- E_mat[colnames(Ze), colnames(Ze)]
+    
+    # decompose and save
+    decomp_e <- eigen_decomp(inc_mat = Ze,
+                             mat = E_mat_ordered,
+                             save_at = eig_e_at)
+    rm(Ze, E_mat_ordered, decomp_e)
+  }
+  
+  if(!file.exists(eig_ge_at)){
+    Zg <- model.matrix(~ -1 + Hybrid, pheno_data)
+    colnames(Zg) <- gsub('Hybrid', '', colnames(Zg), perl = T)
+    G_mat_ordered <- G_mat[colnames(Zg), colnames(Zg)]
+    Kg <- Zg %*% tcrossprod(G_mat_ordered, Zg)
+    colnames(Kg) <- rownames(Kg) <- mat_names
+    
+    Ze <- model.matrix(~ -1 + Env, pheno_data)
+    colnames(Ze) <- gsub('Env', '', colnames(Ze), perl = T)
+    E_mat_ordered <- E_mat[colnames(Ze), colnames(Ze)]
+    Ke <- Ze %*% tcrossprod(E_mat_ordered, Ze)
+    colnames(Ke) <- rownames(Ke) <- mat_names
+    
+    Kge <- Kg*Ke
+    
+    # decompose and save
+    Kge_eigen <- eigen_decomp(mat = Kge, 
+                              save_at = eig_ge_at)
+    rm(Zg, G_mat_ordered, Kg, Ze, E_mat_ordered, Ke, Kge, Kge_eigen)
+  }
+  
+  output <- list()
+  output[["eig_g_at"]] <- eig_g_at
+  output[["eig_e_at"]] <- eig_e_at
+  output[["eig_ge_at"]] <- eig_ge_at
+  return(output)
+}
+
+#source("https://raw.githubusercontent.com/cran/CovCombR/master/R/CovComb.R")
+#source("https://raw.githubusercontent.com/denizakdemir/CovCombR/master/R/Hmatfunc.R")
 # paths -------------------------------------------------------------------
 
 paths <- list(
   "tmp_at" = '/proj/g2f-maize-challenge-2022/tmp_data',
   "dump_at" = '/proj/g2f-maize-challenge-2022/dump',
   "source_data" = '/proj/g2f-maize-challenge-2022/source_data/Training_Data',
+  "submission_data" = '/proj/g2f-maize-challenge-2022/source_data/Testing_Data',
   "processed_data" = '/proj/g2f-maize-challenge-2022/processed_data',
   "results" = '/proj/g2f-maize-challenge-2022/processed_data'
 )
@@ -122,7 +188,7 @@ paths <- list(
 pheno_data_at <- sprintf("%s/pheno_data.qs", paths[["processed_data"]])
 if (!file.exists(pheno_data_at)){
   
-  data <- setDF(fread(sprintf("%s/combined_mat_v2.csv", paths[["processed_data"]])))
+  data <- setDF(fread(sprintf("%s/combined_mat_v3_BLUES_env.csv", paths[["processed_data"]])))
   all_cols <- colnames(data)
   
   sl <- all_cols[grep("sl_", all_cols)]
@@ -138,29 +204,57 @@ if (!file.exists(pheno_data_at)){
 ## env_data
 E_mat_at <- sprintf("%s/E_mat.qs", paths[["processed_data"]])
 if (!file.exists(E_mat_at)){
-  data <- setDF(fread(sprintf("%s/combined_mat_v2.csv", paths[["processed_data"]])))
-  all_cols <- colnames(data)
-  ec <- all_cols[grep("ec_", all_cols)]
-  ec_data <- data[, ec] %>% distinct()
+  #data <- setDF(fread(sprintf("%s/combined_mat_v3.csv", paths[["processed_data"]])))
+  #all_cols <- colnames(data)
+  #ec <- all_cols[grep("ec_", all_cols)]
   
-  #sl_data <- data[, sl] %>% distinct()
-  #wt_data <- data[, wt] %>% pivot_longer(!wt_dta_Env, names_to = "names", values_to = "value") %>% 
-  #  mutate(variable = gsub("(.*)\\_\\d{4}", "\\1", names, perl = T), 
-  #         day = gsub(".*\\_(\\d{4})", "\\1", names, perl = T)) %>%
-  #  select(-names) %>% pivot_wider(id_cols = c("wt_dta_Env", "day"), names_from = "variable",
-  #                                 values_from = "value")
+  # weather data derived kinship 
+  #meta_data_sub <-  read.csv(sprintf("%s/2_Testing_Meta_Data_2022.csv", paths[["submission_data"]])) %>% filter(Date_Planted != "")
+  weather_data_sub <- read.csv(sprintf("%s/4_Testing_Weather_Data_2022.csv", paths[["submission_data"]])) %>% 
+    bind_rows(read.csv(sprintf("%s/4_Training_Weather_Data_2014_2021.csv", paths[["source_data"]]))) %>%
+    pivot_longer(cols = c(3:18), names_to = "variable", values_to = "val") %>%
+    filter(!is.na(val)) %>% mutate(month = substr(Date, 5, 6), ec = paste0(variable, "_" ,month)) 
+    
+  weather_data_bad <- weather_data_sub %>% count(Env, month, variable) %>% 
+    arrange(Env, variable) %>% filter(n < 20)
+  weather_data_sub_fil <- weather_data_sub %>% anti_join(weather_data_bad, by = c("Env", "variable", "month")) %>%
+    group_by(Env, ec) %>% summarize(mean_val = mean(val), .groups = "drop") %>% 
+    pivot_wider(id_cols = "Env", names_from = "ec", values_from = mean_val)
   
-  ec_scaled <- scale(ec_data[, -1], scale = T, center = T)
-  rownames(ec_scaled) <- ec_data$ec_dta_Env
+  miss_cols <- apply(weather_data_sub_fil[, -1], 2, function(x) sum(is.na(x)))
+  weather_data_sub_fil_no_miss <- weather_data_sub_fil[names(which(miss_cols == 0))]
   
-  miss_info <- apply(ec_scaled, 2, function(x) sum(is.na(x)))
-  non_miss_cols <- miss_info[which(miss_info == 0)]
+  weather_data_scaled_mat <- scale(weather_data_sub_fil_no_miss[, -1], center = T, scale = T) 
+  rownames(weather_data_scaled_mat) <- weather_data_sub_fil$Env
+  weather_data_kinship <- weather_data_scaled_mat %*% t(weather_data_scaled_mat)
+  E_mat <- weather_data_kinship/(sum(diag(weather_data_kinship))/nrow(weather_data_kinship))
   
-  ec_no_miss <- ec_scaled[, names(non_miss_cols)]
+  # EC derived kinship
+  #ec_train <- read.csv("~/g2f-maize-challenge-2022/source_data/Training_Data/6_Training_EC_Data_2014_2021.csv", header = T)
+  #ec_sub <- read.csv("~/g2f-maize-challenge-2022/source_data/Testing_Data/6_Testing_EC_Data_2022.csv", header = T)
+  #ec_data <- ec_train %>% bind_rows(ec_sub) %>% distinct(Env, .keep_all = T)
+  #
+  ##sl_data <- data[, sl] %>% distinct()
+  ##wt_data <- data[, wt] %>% pivot_longer(!wt_dta_Env, names_to = "names", values_to = "value") %>% 
+  ##  mutate(variable = gsub("(.*)\\_\\d{4}", "\\1", names, perl = T), 
+  ##         day = gsub(".*\\_(\\d{4})", "\\1", names, perl = T)) %>%
+  ##  select(-names) %>% pivot_wider(id_cols = c("wt_dta_Env", "day"), names_from = "variable",
+  ##                                 values_from = "value")
+  #
+  #ec_scaled <- scale(ec_data[, -1], scale = T, center = T)
+  #rownames(ec_scaled) <- ec_data$Env
+  #
+  #miss_info <- apply(ec_scaled, 2, function(x) sum(is.na(x)))
+  #non_miss_cols <- miss_info[which(miss_info == 0)]
+  #
+  #ec_no_miss <- ec_scaled[, names(non_miss_cols)]
+  #
+  #ec_mat <- ec_no_miss %*% t(ec_no_miss)
+  #
+  #E_mat <- ec_mat/(sum(diag(ec_mat))/nrow(ec_mat))
+  #
+  #E_mat_imputed <- CovComb(Klist = list(E_mat, weather_data_kinship_scaled))
   
-  ec_mat <- ec_no_miss %*% t(ec_no_miss)
-  
-  E_mat <- ec_mat/(sum(diag(ec_mat))/nrow(ec_mat))
   qsave(E_mat, E_mat_at)
 } else {
   E_mat <- qread(E_mat_at)
@@ -198,54 +292,39 @@ if (!file.exists(G_mat_at)){
 #D_mat <- Gmatrix(geno_data_dom, method = "VanRaden")
 #  
 
+## format phenodata for preds
+pheno_data <- pheno_data %>% filter(Env %in% rownames(E_mat))
+
 ## cv data
-cv_data <- read_json(sprintf("%s/train_test_split_v3.json", paths[["processed_data"]]))
+cv_data <- read_json(sprintf("%s/train_test_split_v4.json", paths[["processed_data"]]))
+cv_data[["submission"]] <- list("train" = which(pheno_data$type == "train"), "val" = NA, "test" = which(pheno_data$type == "submission"))
+
+## submission temp
+orig_sub <- read.csv(sprintf("%s/1_Submission_Template_2022.csv", paths[["submission_data"]]))
 
 # Generate matrices -------------------------------------------------------
-mat_names <- paste0(pheno_data$Env, ":", pheno_data$Hybrid)
+# decomp for train data
+eig_train <- generate_eigen_decomps(G_mat = G_mat,
+                                    E_mat = E_mat,
+                                    pheno_data = pheno_data[which(pheno_data$type == "train"), ],
+                                    eig_g_at = sprintf("%s/Kg_eigen_train.qs", paths[["processed_data"]]),
+                                    eig_e_at = sprintf("%s/Ke_eigen_train.qs", paths[["processed_data"]]),
+                                    eig_ge_at = sprintf("%s/Kge_eigen_train.qs", paths[["processed_data"]])) # 5 hours
 
-# Generate design matrices
-eig_g_at <- sprintf("%s/Kg_eigen.qs", paths[["processed_data"]])
-if (!file.exists(eig_g_at)){
-  Zg <- model.matrix(~ -1 + Hybrid, pheno_data)
-  colnames(Zg) <- gsub('Hybrid', '', colnames(Zg), perl = T)
-  G_mat_ordered <- G_mat[colnames(Zg), colnames(Zg)]
-  Kg <- Zg %*% tcrossprod(G_mat_ordered, Zg)
-  colnames(Kg) <- rownames(Kg) <- mat_names
-  Kg_eigen <- eigen_decomp(Kg, eig_g_at)
-}
-
-eig_e_at <- sprintf("%s/Ke_eigen.qs", paths[["processed_data"]])
-if(!file.exists(eig_e_at)){
-  Ze <- model.matrix(~ -1 + Env, pheno_data)
-  colnames(Ze) <- gsub('Env', '', colnames(Ze), perl = T)
-  E_mat_ordered <- E_mat[colnames(Ze), colnames(Ze)]
-  Ke <- Ze %*% tcrossprod(E_mat_ordered, Ze)
-  colnames(Ke) <- rownames(Ke) <- mat_names
-  Ke_eigen <- eigen_decomp(Ke, eig_e_at)
-}
-
-eig_ge_at <- sprintf("%s/Kge_eigen.qs", paths[["processed_data"]])
-if(!file.exists(eig_ge_at)){
-  Zg <- model.matrix(~ -1 + Hybrid, pheno_data)
-  colnames(Zg) <- gsub('Hybrid', '', colnames(Zg), perl = T)
-  G_mat_ordered <- G_mat[colnames(Zg), colnames(Zg)]
-  Kg <- Zg %*% tcrossprod(G_mat_ordered, Zg)
-  colnames(Kg) <- rownames(Kg) <- mat_names
-  
-  Ze <- model.matrix(~ -1 + Env, pheno_data)
-  colnames(Ze) <- gsub('Env', '', colnames(Ze), perl = T)
-  E_mat_ordered <- E_mat[colnames(Ze), colnames(Ze)]
-  Ke <- Ze %*% tcrossprod(E_mat_ordered, Ze)
-  colnames(Ke) <- rownames(Ke) <- mat_names
-  
-  Kge <- Kg*Ke
-  Kge_eigen <- eigen_decomp(Kge, eig_ge_at)
-}
+# decop for submission_data
+eig_sub <- generate_eigen_decomps(G_mat = G_mat,
+                                  E_mat = E_mat,
+                                  pheno_data = pheno_data,
+                                  eig_g_at = sprintf("%s/Kg_eigen_sub_v2.qs", paths[["processed_data"]]),
+                                  eig_e_at = sprintf("%s/Ke_eigen_sub_v2.qs", paths[["processed_data"]]),
+                                  eig_ge_at = sprintf("%s/Kge_eigen_sub_v2.qs", paths[["processed_data"]])) # 7 hours
 
 #source("https://raw.githubusercontent.com/allogamous/EnvRtype/master/R/getGEenriched.R")
 
-# perform predictions
+
+# Predictions  -------------------------------------------------------
+
+## cross validations
 
 instance <- format(Sys.time(), format = "%H_%M_%d_%m_%y")
 save_loc <- sprintf("%s/mixed_model/at_%s", paths[["dump_at"]], instance)
@@ -259,20 +338,47 @@ system.time(out_raw <- foreach(i=1:length(cv_data),
                                .packages = c("dplyr", "BGLR", "qs", "Metrics"))
             %dopar% yield_rmse(run = i,
                                cv_data = cv_data,
-                               pheno_data = pheno_data,
-                               eig_g_at = eig_g_at,
-                               eig_e_at = eig_e_at,
-                               eig_ge_at = eig_ge_at,
-                               save_loc = save_loc))
+                               pheno_data = pheno_data[which(pheno_data$type == "train"), ],
+                               eig_g_at = eig_train[["eig_g_at"]],
+                               eig_e_at = eig_train[["eig_e_at"]],
+                               eig_ge_at = eig_train[["eig_ge_at"]],
+                               save_loc = save_loc,
+                               nIter=15000, 
+                               burnIn=2000))
 stopCluster(cl)
 
 results <- list()
 
 results[["out_raw_df"]] <- as.data.frame(do.call(rbind, out_raw))
 
+## for the submission set alone
+
+pred_sub <- yield_rmse(run = 81,
+                       cv_data = cv_data,
+                       pheno_data = pheno_data,
+                       eig_g_at = eig_sub[["eig_g_at"]],
+                       eig_e_at = eig_sub[["eig_e_at"]],
+                       eig_ge_at = eig_sub[["eig_ge_at"]],
+                       save_loc = save_loc,
+                       nIter=15000, 
+                       burnIn=2000)
+save_loc <- "~/g2f-maize-challenge-2022/dump/mixed_model/at_21_31_13_01_23"
+read_data <- paste0(save_loc, "/results/", list.files(sprintf("%s/results", save_loc)))
+
 # Read in results
 
 all_res_files <- paste0(save_loc, "/results/", list.files(sprintf("%s/results", save_loc)))
 results[["raw_data"]] <- do.call(rbind, lapply(all_res_files, qread))
 
-qsave(results, sprintf("%s/mixed_model_res.qs", paths[["results"]]))
+## prepare submission
+dennis_data <- read.csv("~/g2f-maize-challenge-2022/source_data/2168fc11-8a3d-472f-bcbd-7c380b489da9 (1).csv", 
+                        header = T, col.names = c("Env", "Hybrid", "pred_dennis"))
+to_submit <- results$raw_data %>% filter(type == "submission") %>% 
+  select(Env, Hybrid, pred) %>% 
+  right_join(orig_sub %>% select(-Yield_Mg_ha), by = c("Env", "Hybrid")) %>%
+  rename(Yield_Mg_ha = pred) %>%
+  left_join(dennis_data, by = c("Env", "Hybrid")) %>%
+  mutate(Yield_Mg_ha = ifelse(is.na(Yield_Mg_ha), pred_dennis, Yield_Mg_ha)) %>%
+  select(-pred_dennis)
+  
+write.csv(to_submit, "~/g2f-maize-challenge-2022/results/submit_v1_with_d_data.csv", row.names = F)
