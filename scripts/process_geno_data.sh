@@ -8,6 +8,7 @@ mac_thr=$4 # integer : Include only sites with Minor Allele Count greater than o
 # put everthing processed in /proj/g2f-maize-challenge-2022/processed_data
 pro_dir_path="/qg-10/data/AGR-QG/Gogna/g2f-maize-challenge-2022/processed_data"
 
+
 if [[ ! -d "$pro_dir_path" ]]
 then
   mkdir "$pro_dir_path"
