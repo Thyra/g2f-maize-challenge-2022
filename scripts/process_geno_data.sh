@@ -5,8 +5,8 @@ file_name=$2
 miss_thr=$3 # float : Exclude sites on the basis of the proportion of missing data (defined to be between 0 and 1, where 0 allows sites that are completely missing and 1 indicates no missing data allowed).
 mac_thr=$4 # integer : Include only sites with Minor Allele Count greater than or equal to the "--mac" value 
 
-# put everthing processed in /proj/g2f-maize-challenge-2022/processed_data
-pro_dir_path="/qg-10/data/AGR-QG/Gogna/g2f-maize-challenge-2022/processed_data"
+# put everthing processed in /proj = /g2f-maize-challenge-2022 directory
+pro_dir_path="/proj/processed_data"
 
 
 if [[ ! -d "$pro_dir_path" ]]
